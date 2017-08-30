@@ -1,2 +1,2 @@
 #/bin/bash
-$(dirname -- "$0")/clip.py "$@"
+$(dirname -- "$0")/__init__.py "$@"
