@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 with open('README.rst') as readme:
     setup(
-        name='clip',
+        name='clipoverlap',
         version='1.0.0',
         packages=find_packages(),
         long_description=readme.read(),
