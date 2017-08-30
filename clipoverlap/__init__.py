@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
 import platform
 if platform.python_implementation() == 'PyPy':
-    import pypysam import AlignmentFile, AlignedSegment
+    import AlignmentFile, AlignedSegment
 else:
     from pysam import AlignmentFile, AlignedSegment
 from sys import maxsize, stderr
@@ -500,61 +499,3 @@ def clip(inStream: io.IOBase, outStream: io.IOBase, threads: int = 8, maxTLen: i
         statusProc.terminate()
         logStream.write("\x1b[F\x1b[2K\rCompleted.\n")
     outStream.close()
-
-if __name__ == '__main__':
-    import getopt, os, errno
-    from sys import stdout, stdin, argv
-    threads = 2
-    maxTLen = 1000
-    outFormat = ''
-    ordered = False
-    alternate = False
-    trimTail = False
-    clipOnly = False
-    verbose = False
-
-    #Command line options
-    stderr.write("Clip Overlap v1.0\n")
-    ops, paths = getopt.gnu_getopt(argv[1:], 't:m:ho:svabc')
-    if not len(ops) and not len(paths):
-        stderr.write("Use -h for help.\n")
-    else:
-        for op, val in ops:
-            if op == '-h':
-                stderr.write("Clip overlapping reads from SAM/BAM/CRAM file\n"
-                             "Use: clip.py [-tmos] [input file path | < infile > outfile] [output file path]\n"
-                             "If no paths are given stdin and stdout are used.\n"
-                             "-t # Threads to use for processing (Default=1)\n"
-                             "-m # Maximum template length guaranteeing no read overlap (Default=1000)\n"
-                             "-a Alternate strand being clipped to avoid strand bias (RAM intensive)\n"
-                             "-b Trim tails of reads that extend past end of mate. Used to trim barcode remnants."
-                             "-c Clip only, do not merge clipped region into mate\n"
-                             "-o [sbuc] Output format: s=SAM (Default), b=BAM compressed, bu=BAM uncompressed, c=CRAM\n"
-                             "-s Maintain input order (High depth regions may fill RAM), if not set will output in arbitrary order (Minimal RAM)\n"
-                             "-v Verbose status output\n")
-                exit()
-            elif op == '-t':
-                threads = int(val or 1)
-            elif op == '-m':
-                maxTLen = int(val or 1000)
-            elif op == '-a':
-                alternate = True
-            elif op == '-b':
-                trimTail = True
-            elif op == '-c':
-                clipOnly = True
-            elif op == '-o' and val != 's':
-                outFormat += val
-            elif op == '-s':
-                ordered = True
-            elif op == '-v':
-                verbose = True
-
-    if len(paths) > 1 and not os.path.exists(os.path.dirname(paths[1])):
-        try:
-            os.makedirs(os.path.dirname(paths[1]))
-        except OSError as e:
-            if e.errno != errno.EEXIST:
-                raise
-
-    clip(paths[0] if len(paths) else stdin, open(paths[1], 'wb+') if len(paths) > 1 else stdout, threads, maxTLen, outFormat, ordered, alternate, clipOnly, trimTail, verbose)
