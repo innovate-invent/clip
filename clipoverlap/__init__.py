@@ -1,6 +1,6 @@
 import platform
 if platform.python_implementation() == 'PyPy':
-    import AlignmentFile, AlignedSegment
+    from pypysam import AlignmentFile, AlignedSegment
 else:
     from pysam import AlignmentFile, AlignedSegment
 from sys import maxsize, stderr
