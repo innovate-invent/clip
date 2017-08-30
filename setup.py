@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 with open('README.rst') as readme:
     setup(
         name='clipoverlap',
-        version='1.0.0',
+        version='1.0.4',
         packages=find_packages(),
         long_description=readme.read(),
         install_requires=['pysam'],

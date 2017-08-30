@@ -27,7 +27,7 @@ if __name__ == '__main__':
                              "-m # Maximum template length guaranteeing no read overlap (Default=1000)\n"
                              "-a Alternate strand being clipped to avoid strand bias (RAM intensive)\n"
                              "-b Trim tails of reads that extend past end of mate. Used to trim barcode remnants.\n"
-                             "-c Clip only, do not merge clipped region into mate\n"
+                             "-c Clip only, do not merge clipped region into mate.\n"
                              "-o [sbuc] Output format: s=SAM (Default), b=BAM compressed, bu=BAM uncompressed, c=CRAM\n"
                              "-s Maintain input order (High depth regions may fill RAM), if not set will output in arbitrary order (Minimal RAM)\n"
                              "-v Verbose status output\n")
