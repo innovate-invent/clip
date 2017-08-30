@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 import platform
 if platform.python_implementation() == 'PyPy':
-    import pypysam
+    import pypysam import AlignmentFile, AlignedSegment
 else:
-    import pysam
+    from pysam import AlignmentFile, AlignedSegment
 from sys import maxsize, stderr
-from CigarIterator import CigarIterator, appendOrInc
+from CigarIterator import CigarIterator, appendOrInc, CigarOps
 import multiprocessing, ctypes, io
-import parapysam
+from . import parapysam
 
 default_cost = { # Default costs to use when evaluating alignments
-    pysam.CMATCH: lambda x: -x,
-    pysam.CEQUAL: lambda x: -x,
-    pysam.CDIFF: lambda x: -x,
-    pysam.CREF_SKIP: lambda x: -x,
-    pysam.CINS: lambda x: 6 + 1*(x-1),
-    pysam.CDEL: lambda x: 3 + 1*(x-1)
+    CigarOps.CMATCH: lambda x: -x,
+    CigarOps.CEQUAL: lambda x: -x,
+    CigarOps.CDIFF: lambda x: -x,
+    CigarOps.CREF_SKIP: lambda x: -x,
+    CigarOps.CINS: lambda x: 6 + 1*(x-1),
+    CigarOps.CDEL: lambda x: 3 + 1*(x-1)
 }
 
-def calculateAlignmentCost(record: pysam.AlignedSegment, start: int = 0, end: int = maxsize, costs = default_cost) -> int:
+def calculateAlignmentCost(record: AlignedSegment, start: int = 0, end: int = maxsize, costs = default_cost) -> int:
     """
     Calculates the alignment cost of a record.
     :param record: The record to evaluate
@@ -45,7 +45,7 @@ def calculateAlignmentCost(record: pysam.AlignedSegment, start: int = 0, end: in
         cost += costs[i.op](end - i.refPos + 1)
     return cost
 
-def calculateMappingQuality(record: pysam.AlignedSegment) -> int:
+def calculateMappingQuality(record: AlignedSegment) -> int:
     """
     Calculate the mapping quality of the record.
     Currently only returns the current mapping quality as a new one would obfuscate the success of the aligner.
@@ -55,7 +55,7 @@ def calculateMappingQuality(record: pysam.AlignedSegment) -> int:
     # Mapping quality isn't updated as it reflects the quality of the original alignment
     return record.mapping_quality
 
-def trimRecord(record: pysam.AlignedSegment, mate: pysam.AlignedSegment, start: int = 0, end: int = maxsize) -> None:
+def trimRecord(record: AlignedSegment, mate: AlignedSegment, start: int = 0, end: int = maxsize) -> None:
     """
     Soft clip the ends of a record.
     :param record: The record to soft clip
@@ -77,16 +77,16 @@ def trimRecord(record: pysam.AlignedSegment, mate: pysam.AlignedSegment, start: 
     i = CigarIterator(record)
     def checkForFirstMatch():
         nonlocal nextMatch, i
-        if nextMatch is None and i.op in (pysam.CMATCH, pysam.CEQUAL, pysam.CDIFF):
+        if nextMatch is None and i.op in (CigarOps.CMATCH, CigarOps.CEQUAL, CigarOps.CDIFF):
             nextMatch = i.refPos
 
     #Jump past hard clipping and retain op
     hard = i.skipClipped(True)
-    if hard: ops += [(pysam.CHARD_CLIP, hard)]
+    if hard: ops += [(CigarOps.CHARD_CLIP, hard)]
     #Skip to reference starting position
     if start <= end and i.skipToRefPos(start):
         #Soft clip everything before start
-        appendOrInc(ops, [pysam.CSOFT_CLIP, i.seqPos])
+        appendOrInc(ops, [CigarOps.CSOFT_CLIP, i.seqPos])
         dist = end - i.refPos #Calculate reference distance remaining to end
 
         #Copy in all ops before end
@@ -101,15 +101,15 @@ def trimRecord(record: pysam.AlignedSegment, mate: pysam.AlignedSegment, start: 
             checkForFirstMatch()
             appendOrInc(ops, [i.op, dist])
             if not i.inSeq: dist = 0
-            appendOrInc(ops, [pysam.CSOFT_CLIP, i.record.query_length - i.seqPos - dist])
+            appendOrInc(ops, [CigarOps.CSOFT_CLIP, i.record.query_length - i.seqPos - dist])
             # Retain hard clip at end
-            if len(i.ops) and i.ops[-1][0] == pysam.CHARD_CLIP:
+            if len(i.ops) and i.ops[-1][0] == CigarOps.CHARD_CLIP:
                 appendOrInc(ops, i.ops[-1])
     else:
         #Soft clip entire read
-        appendOrInc(ops, [pysam.CSOFT_CLIP, record.query_length])
+        appendOrInc(ops, [CigarOps.CSOFT_CLIP, record.query_length])
         #Retain hard clip at end
-        if len(i.ops) and i.ops[-1][0] == pysam.CHARD_CLIP:
+        if len(i.ops) and i.ops[-1][0] == CigarOps.CHARD_CLIP:
             appendOrInc(ops, i.ops[-1])
 
     #Update record
@@ -121,7 +121,7 @@ def trimRecord(record: pysam.AlignedSegment, mate: pysam.AlignedSegment, start: 
     # TODO rewrite MD
     if mate: mate.next_reference_start = record.reference_start
 
-def mergeRecord(fromRecord: pysam.AlignedSegment, toRecord: pysam.AlignedSegment, refStart: int = -1, refEnd: int = maxsize, costs = default_cost) -> None:
+def mergeRecord(fromRecord: AlignedSegment, toRecord: AlignedSegment, refStart: int = -1, refEnd: int = maxsize, costs = default_cost) -> None:
     """
     Merge the operations of the overlapping region from one record into another. If there is a mismatch of operations at a position between the
     records then the cheapest alignment will be retained.
@@ -330,7 +330,7 @@ class WriterProcess(parapysam.OrderedWorker):
         Called by super class to begin work.
         :return: None
         """
-        outFile = pysam.AlignmentFile(self.outFH, 'w' + self.outFormat, header=self.header)
+        outFile = AlignmentFile(self.outFH, 'w' + self.outFormat, header=self.header)
         if self.ordered:
             self.writeOrdered(outFile)
         else:
@@ -343,7 +343,7 @@ class WriterProcess(parapysam.OrderedWorker):
             p.stop()
         self.join()
 
-    def writeOrdered(self, outFile: pysam.AlignedSegment) -> None:
+    def writeOrdered(self, outFile: AlignedSegment) -> None:
         """
         Writes output ordered based on :attr:`self.ordered`
         :param outFile: An open pysam.AlignmentFile instance wrapping the output file
@@ -395,10 +395,10 @@ class WriterProcess(parapysam.OrderedWorker):
             if self.ordered != 'c': self.nextIndex.value += 1
             outFile.write(result.value[1])
 
-    def write(self, outFile: pysam.AlignedSegment) -> None:
+    def write(self, outFile: AlignedSegment) -> None:
         """
         Writes records out as they are completed, irrespective of input order.
-        :param outFile: An open pysam.AlignmentFile instance wrapping the output file
+        :param outFile: An open AlignmentFile instance wrapping the output file
         :return: None
         """
         running = True
@@ -440,7 +440,7 @@ def clip(inStream: io.IOBase, outStream: io.IOBase, threads: int = 8, maxTLen: i
     """
     pool = []
     mateBuffer = {}
-    inFile = pysam.AlignmentFile(inStream)
+    inFile = AlignmentFile(inStream)
     inFileItr = inFile.fetch(until_eof=True)
 
     # An even number of threads needs to be used to allow round robin loop to alternate consistently at its boundaries
