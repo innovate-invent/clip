@@ -368,8 +368,6 @@ class WriterProcess(parapysam.OrderedWorker):
                 if not p.pollRecord():
                     continue
                 result = p.receiveOrderedRecord()
-                if self.nextIndex.value == result[0]:
-                    self.nextIndex.value += 1
 
                 if self.ordered == 'c':
                     try:
