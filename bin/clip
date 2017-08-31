@@ -21,7 +21,7 @@ if __name__ == '__main__':
         for op, val in ops:
             if op == '-h':
                 stderr.write("Clip overlapping reads from SAM/BAM/CRAM file\n"
-                             "Use: clip [-tmos] [input file path | < infile > outfile] [output file path]\n"
+                             "Use: clip [-tmabcosv] [input file path] [output file path]\n"
                              "If no paths are given stdin and stdout are used.\n"
                              "-t # Threads to use for processing (Default=1)\n"
                              "-m # Maximum template length guaranteeing no read overlap (Default=1000)\n"
@@ -49,11 +49,14 @@ if __name__ == '__main__':
             elif op == '-v':
                 verbose = True
 
-    if len(paths) > 1 and not os.path.exists(os.path.dirname(paths[1])):
-        try:
-            os.makedirs(os.path.dirname(paths[1]))
-        except OSError as e:
-            if e.errno != errno.EEXIST:
-                raise
+    if len(paths) > 1:
+        if os.path.exists(paths[1]):
+            raise FileExistsError(paths[1])
+        elif not os.path.exists(os.path.dirname(paths[1])):
+            try:
+                os.makedirs(os.path.dirname(paths[1]))
+            except OSError as e:
+                if e.errno != errno.EEXIST:
+                    raise
 
     clip(paths[0] if len(paths) and paths[0] != '-' else stdin, open(paths[1], 'wb+') if len(paths) > 1 and paths[1] != '-' else stdout, threads, maxTLen, outFormat, ordered, alternate, clipOnly, trimTail, verbose)
