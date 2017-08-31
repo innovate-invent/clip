@@ -7,6 +7,7 @@ from sys import maxsize, stderr
 from CigarIterator import CigarIterator, appendOrInc, CigarOps
 import multiprocessing, ctypes, io
 from . import parapysam
+import heapq
 
 default_cost = { # Default costs to use when evaluating alignments
     CigarOps.CMATCH: lambda x: -x,
@@ -329,11 +330,32 @@ class WriterProcess(parapysam.OrderedWorker):
         Called by super class to begin work.
         :return: None
         """
+        writeBuffer = []
+        pendingIndicies = []
+        largestPos = 0
+        self.nextIndex.value = 0  # type: int
         outFile = AlignmentFile(self.outFH, 'w' + self.outFormat, header=self.header)
-        if self.ordered:
-            self.writeOrdered(outFile)
-        else:
-            self.write(outFile)
+        running = True
+        while running:
+            running = False
+            for p in self.pool + [self]: #type: WorkerProcess
+                if p.checkEOF():
+                    continue
+                running = True
+                if not p.pollRecord():
+                    continue
+                if self.ordered:
+                    if self.ordered == 'c':
+                        largestPos = self.writeCoordinateOrdered(outFile, p.receiveOrderedRecord(), writeBuffer, pendingIndicies, largestPos)
+                    else:
+                        self.writeIndexOrdered(outFile, p.receiveOrderedRecord(), writeBuffer)
+                else:
+                    self.write(outFile, p.receiveOrderedRecord())
+
+        while len(writeBuffer):
+            result = heapq.heappop(writeBuffer)
+            self.bufferedCount.value -= 1
+            outFile.write(result.value[1])
         outFile.close()
 
     def stop(self) -> None:
@@ -342,75 +364,78 @@ class WriterProcess(parapysam.OrderedWorker):
             p.stop()
         self.join()
 
-    def writeOrdered(self, outFile: AlignedSegment) -> None:
+    class HeapNode:
+        __slots__ = 'key', 'value'
+
+        def __init__(self, key, value):
+            self.key, self.value = key, value
+
+        def __lt__(self, other):
+            return self.key < other.key
+
+    def writeIndexOrdered(self, outFile: AlignedSegment, result, writeBuffer) -> None:
         """
-        Writes output ordered based on :attr:`self.ordered`
+        Writes output ordered based on the order that the records were read in
         :param outFile: An open pysam.AlignmentFile instance wrapping the output file
+        :param result: The result of the worker returned from :meth:`OrderedWorker.receiveOrderedRecord`
+        :param writeBuffer: A heapified list containing worker results waiting to be written.
         :return: None
         """
-        import heapq
-        class HeapNode:
-            __slots__ = 'key', 'value'
-            def __init__(self, key, value):
-                self.key, self.value = key, value
-            def __lt__(self, other):
-                return self.key < other.key
-        writeBuffer = []
-        self.nextIndex.value = 0  # type: int
-        largestPos = 0
-        running = True
-        while running:
-            running = False
-            for p in self.pool + [self]: #type: WorkerProcess
-                if p.checkEOF():
-                    continue
-                running = True
-                if not p.pollRecord():
-                    continue
-                result = p.receiveOrderedRecord()
+        if self.nextIndex.value == result[0]:
+            self.nextIndex.value += 1
+            outFile.write(result.value[1])
+        else:
+            heapq.heappush(writeBuffer, self.HeapNode(result[0], result))
+            self.bufferedCount.value += 1
 
-                if self.ordered == 'c':
-                    if self.nextIndex.value == result[0]:
-                        self.nextIndex.value += 1
-                    try:
-                        startPos = result[1].get_tag('OS')  # type: int
-                    except KeyError:
-                        startPos = result[1].reference_start
-                    if largestPos < startPos:
-                        largestPos = startPos
-                    heapq.heappush(writeBuffer, HeapNode(result[1].reference_start, result))
-                else:
-                    heapq.heappush(writeBuffer, HeapNode(result[0], result))
-                self.bufferedCount.value += 1
-                while len(writeBuffer) and writeBuffer[0].key <= self.nextIndex.value and (self.ordered != 'c' or writeBuffer[1].reference_start < largestPos):
-                    result = heapq.heappop(writeBuffer)
-                    self.bufferedCount.value -= 1
-                    if self.ordered != 'c': self.nextIndex.value += 1
-                    outFile.write(result.value[1])
-
-        while len(writeBuffer):
+        while len(writeBuffer) and writeBuffer[0].key == self.nextIndex.value:
             result = heapq.heappop(writeBuffer)
+            self.nextIndex.value += 1
             self.bufferedCount.value -= 1
-            if self.ordered != 'c': self.nextIndex.value += 1
             outFile.write(result.value[1])
 
-    def write(self, outFile: AlignedSegment) -> None:
+    def writeCoordinateOrdered(self, outFile: AlignedSegment, result, writeBuffer, pendingIndicies, largestPos) -> int:
+        """
+        Writes output sorted on reference coordinate
+        :param outFile: An open pysam.AlignmentFile instance wrapping the output file
+        :param result: The result of the worker returned from :meth:`OrderedWorker.receiveOrderedRecord`
+        :param writeBuffer: A heapified list containing worker results waiting to be written.
+        :param pendingIndicies: A heapified list containing the indicies of the results in writeBuffer
+        :param largestPos: The largest original start position in writeBuffer
+        :return: The new largest position
+        """
+        if self.nextIndex.value == result[0]:
+            self.nextIndex.value += 1
+        else:
+            heapq.heappush(pendingIndicies, result[0])
+            if self.nextIndex.value == pendingIndicies[0]:
+                self.nextIndex.value += 1
+                heapq.heappop(pendingIndicies)
+
+        try:
+            startPos = result[1].get_tag('OS')  # type: int
+        except KeyError:
+            startPos = result[1].reference_start
+        if largestPos < startPos:
+            largestPos = startPos
+        heapq.heappush(writeBuffer, self.HeapNode(result[1].reference_start, result))
+        self.bufferedCount.value += 1
+        while len(writeBuffer) and writeBuffer[0].value[0] < self.nextIndex.value and writeBuffer[0].value[1].reference_start < largestPos:
+            result = heapq.heappop(writeBuffer)
+            self.bufferedCount.value -= 1
+            outFile.write(result.value[1])
+
+        return largestPos
+
+    def write(self, outFile: AlignedSegment, result) -> None:
         """
         Writes records out as they are completed, irrespective of input order.
         :param outFile: An open AlignmentFile instance wrapping the output file
+        :param result: The result of the worker returned from :meth:`OrderedWorker.receiveOrderedRecord`
         :return: None
         """
-        running = True
-        while running:
-            running = False
-            for p in self.pool + [self]: #type: WorkerProcess
-                if p.checkEOF():
-                    continue
-                running = True
-                if not p.pollRecord():
-                    continue
-                self.nextIndex.value, record = p.receiveOrderedRecord()
-                outFile.write(record)
+        self.nextIndex.value, record = result
+        outFile.write(record)
 
 def _status(mateCount, bufferedCount, nextIndex, logStream: io.IOBase = stderr):
     import time
@@ -471,7 +496,7 @@ def clip(inStream: io.IOBase, outStream: io.IOBase, threads: int = 8, maxTLen: i
 
     i = 0  # Tracks the order the records were read
     for record in inFileItr:
-        # Skip clipping code if the records don't overlap
+        # Skip clipping if the records don't overlap
         if not record.is_unmapped \
                 and not record.mate_is_unmapped \
                 and not record.is_supplementary \
