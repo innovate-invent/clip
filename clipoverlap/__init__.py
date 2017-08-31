@@ -370,6 +370,8 @@ class WriterProcess(parapysam.OrderedWorker):
                 result = p.receiveOrderedRecord()
 
                 if self.ordered == 'c':
+                    if self.nextIndex.value == result[0]:
+                        self.nextIndex.value += 1
                     try:
                         startPos = result[1].get_tag('OS')  # type: int
                     except KeyError:
@@ -380,7 +382,7 @@ class WriterProcess(parapysam.OrderedWorker):
                 else:
                     heapq.heappush(writeBuffer, HeapNode(result[0], result))
                 self.bufferedCount.value += 1
-                while len(writeBuffer) and writeBuffer[0].key == self.nextIndex.value and (self.ordered != 'c' or writeBuffer[1].reference_start < largestPos):
+                while len(writeBuffer) and writeBuffer[0].key <= self.nextIndex.value and (self.ordered != 'c' or writeBuffer[1].reference_start < largestPos):
                     result = heapq.heappop(writeBuffer)
                     self.bufferedCount.value -= 1
                     if self.ordered != 'c': self.nextIndex.value += 1
