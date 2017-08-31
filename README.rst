@@ -45,12 +45,15 @@ If unsorted data is the input then this could potentially run out of RAM.
 Merge Algorithm
 ---------------
 The mate read cigars are assumed to align 1-1 with an offset determined by the difference in the reference start positions.
+
 * If ``-c`` is unset then ``clip`` will retain the highest quality base at a given position in the overlapping region of the mate pairs.
 * If the base qualities are equal then it will keep the base that does not match the reference.
 * If base qualities are equal and both bases are different variants, then the quality score is set to 3 (3 = Phred 50% probability of either base).
 * If the operations between the aligned cigars do not match then the operations from the mate with the lowest alignment cost are retained.
+
 The alignment cost is calculated for the overlapping region only.
 The cost is summed using these values:
+
 ===========  ==========================
 Operation    Value
 ===========  ==========================
