@@ -56,4 +56,4 @@ if __name__ == '__main__':
             if e.errno != errno.EEXIST:
                 raise
 
-    clip(paths[0] if len(paths) else stdin, open(paths[1], 'wb+') if len(paths) > 1 else stdout, threads, maxTLen, outFormat, ordered, alternate, clipOnly, trimTail, verbose)
+    clip(paths[0] if len(paths) and paths[0] != '-' else stdin, open(paths[1], 'wb+') if len(paths) > 1 and paths[1] != '-' else stdout, threads, maxTLen, outFormat, ordered, alternate, clipOnly, trimTail, verbose)
