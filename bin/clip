@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from clipoverlap import clip
+from clipoverlap.__version import __versionstr__
 import getopt, os, errno
 from sys import stdout, stdin, stderr, argv
 if __name__ == '__main__':
@@ -13,7 +14,7 @@ if __name__ == '__main__':
     verbose = False
 
     #Command line options
-    stderr.write("Clip Overlap v1.0\n")
+    stderr.write("Clip Overlap {}\n".format(__versionstr__))
     ops, paths = getopt.gnu_getopt(argv[1:], 't:m:ho:svabc')
     if not len(ops) and not len(paths):
         stderr.write("Use -h for help.\n")
