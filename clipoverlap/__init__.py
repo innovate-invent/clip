@@ -64,62 +64,65 @@ def trimRecord(record: AlignedSegment, mate: AlignedSegment, start: int = 0, end
     :param end: The end coordinate in reference space of the region to retain.
     :return: None
     """
-    if start <= record.reference_start and end >= record.reference_end-1:
-        # No work needs to be done
-        return
+    try:
+        if start <= record.reference_start and end >= record.reference_end-1:
+            # No work needs to be done
+            return
 
-    if start < record.reference_start:
-        start = record.reference_start
-    ops = []
+        if start < record.reference_start:
+            start = record.reference_start
+        ops = []
 
-    # Retain the first match after clipping to avoid setting the new start position to a deletion
-    nextMatch = None
-    i = CigarIterator(record)
-    def checkForFirstMatch():
-        nonlocal nextMatch, i
-        if nextMatch is None and i.op in (CigarOps.CMATCH, CigarOps.CEQUAL, CigarOps.CDIFF):
-            nextMatch = i.refPos
+        # Retain the first match after clipping to avoid setting the new start position to a deletion
+        nextMatch = None
+        i = CigarIterator(record)
+        def checkForFirstMatch():
+            nonlocal nextMatch, i
+            if nextMatch is None and i.op in (CigarOps.CMATCH, CigarOps.CEQUAL, CigarOps.CDIFF):
+                nextMatch = i.refPos
 
-    #Jump past hard clipping and retain op
-    hard = i.skipClipped(True)
-    if hard: ops += [(CigarOps.CHARD_CLIP, hard)]
-    #Skip to reference starting position
-    if start <= end and i.skipToRefPos(start):
-        #Soft clip everything before start
-        appendOrInc(ops, [CigarOps.CSOFT_CLIP, i.seqPos])
-        dist = end - i.refPos #Calculate reference distance remaining to end
+        #Jump past hard clipping and retain op
+        hard = i.skipClipped(True)
+        if hard: ops += [(CigarOps.CHARD_CLIP, hard)]
+        #Skip to reference starting position
+        if start <= end and i.skipToRefPos(start):
+            #Soft clip everything before start
+            appendOrInc(ops, [CigarOps.CSOFT_CLIP, i.seqPos])
+            dist = end - i.refPos #Calculate reference distance remaining to end
 
-        #Copy in all ops before end
-        while dist > i.opRemaining or not i.inRef:
-            checkForFirstMatch()
-            appendOrInc(ops, [i.op, i.opRemaining])
-            if i.inRef: dist -= i.opRemaining
-            if not i.nextOp(): break
+            #Copy in all ops before end
+            while dist > i.opRemaining or not i.inRef:
+                checkForFirstMatch()
+                appendOrInc(ops, [i.op, i.opRemaining])
+                if i.inRef: dist -= i.opRemaining
+                if not i.nextOp(): break
 
-        #If end within op range, copy in remainder
-        if i.valid:
-            checkForFirstMatch()
-            appendOrInc(ops, [i.op, dist])
-            if not i.inSeq: dist = 0
-            appendOrInc(ops, [CigarOps.CSOFT_CLIP, i.record.query_length - i.seqPos - dist])
-            # Retain hard clip at end
+            #If end within op range, copy in remainder
+            if i.valid:
+                checkForFirstMatch()
+                appendOrInc(ops, [i.op, dist])
+                if not i.inSeq: dist = 0
+                appendOrInc(ops, [CigarOps.CSOFT_CLIP, i.record.query_length - i.seqPos - dist])
+                # Retain hard clip at end
+                if len(i.ops) and i.ops[-1][0] == CigarOps.CHARD_CLIP:
+                    appendOrInc(ops, i.ops[-1])
+        else:
+            #Soft clip entire read
+            appendOrInc(ops, [CigarOps.CSOFT_CLIP, record.query_length])
+            #Retain hard clip at end
             if len(i.ops) and i.ops[-1][0] == CigarOps.CHARD_CLIP:
                 appendOrInc(ops, i.ops[-1])
-    else:
-        #Soft clip entire read
-        appendOrInc(ops, [CigarOps.CSOFT_CLIP, record.query_length])
-        #Retain hard clip at end
-        if len(i.ops) and i.ops[-1][0] == CigarOps.CHARD_CLIP:
-            appendOrInc(ops, i.ops[-1])
 
-    #Update record
-    record.cigartuples = ops
-    if nextMatch is not None:
-        record.set_tag('OS', record.reference_start)
-        record.reference_start = nextMatch
-    record.mapping_quality = calculateMappingQuality(record)
-    # TODO rewrite MD
-    if mate: mate.next_reference_start = record.reference_start
+        #Update record
+        record.cigartuples = ops
+        if nextMatch is not None:
+            record.set_tag('OS', record.reference_start)
+            record.reference_start = nextMatch
+        record.mapping_quality = calculateMappingQuality(record)
+        # TODO rewrite MD
+        if mate: mate.next_reference_start = record.reference_start
+    except BaseException as e:
+        raise RuntimeError("Unhandled exception while trimming {}. Ref position: {} Trim start: {] Trim end: {}".format(record.query_name, record.reference_start, start, end)) from e
 
 def mergeRecord(fromRecord: AlignedSegment, toRecord: AlignedSegment, refStart: int = -1, refEnd: int = maxsize, costs = default_cost) -> None:
     """
@@ -134,89 +137,92 @@ def mergeRecord(fromRecord: AlignedSegment, toRecord: AlignedSegment, refStart: 
     :param costs: The cost map to pass to :func:`calculateAlignmentCost`
     :return: None
     """
-    overlapStart = fromRecord.reference_start if fromRecord.reference_start > toRecord.reference_start else toRecord.reference_start
-    overlapEnd = (fromRecord.reference_end if fromRecord.reference_end < toRecord.reference_end else toRecord.reference_end) - 1
+    try:
+        overlapStart = fromRecord.reference_start if fromRecord.reference_start > toRecord.reference_start else toRecord.reference_start
+        overlapEnd = (fromRecord.reference_end if fromRecord.reference_end < toRecord.reference_end else toRecord.reference_end) - 1
 
-    if refStart < overlapStart:
-        refStart = overlapStart
-    if refEnd > overlapEnd:
-        refEnd = overlapEnd
+        if refStart < overlapStart:
+            refStart = overlapStart
+        if refEnd > overlapEnd:
+            refEnd = overlapEnd
 
-    if fromRecord.reference_length == 0 or toRecord.reference_length == 0 or refStart >= refEnd:
-        #No work needs to be done
-        return
+        if fromRecord.reference_length == 0 or toRecord.reference_length == 0 or refStart >= refEnd:
+            #No work needs to be done
+            return
 
-    ops = []
-    toItr = CigarIterator(toRecord)
+        ops = []
+        toItr = CigarIterator(toRecord)
 
-    #Copy in unaffected ops in non-overlapping region
-    dist = refStart - toItr.refStart
-    if not toItr.nextOp(): return
-    while not toItr.inRef or dist > toItr.opLength:
-        appendOrInc(ops, list(toItr.opRange))
-        if toItr.inRef: dist -= toItr.opLength
+        #Copy in unaffected ops in non-overlapping region
+        dist = refStart - toItr.refStart
         if not toItr.nextOp(): return
+        while not toItr.inRef or dist > toItr.opLength:
+            appendOrInc(ops, list(toItr.opRange))
+            if toItr.inRef: dist -= toItr.opLength
+            if not toItr.nextOp(): return
 
-    appendOrInc(ops, [toItr.op, dist])
-    toItr.step(dist)
-    seq = toRecord.query_sequence[:toItr.seqPos]
-    qual = list(toRecord.query_qualities[:toItr.seqPos])
+        appendOrInc(ops, [toItr.op, dist])
+        toItr.step(dist)
+        seq = toRecord.query_sequence[:toItr.seqPos]
+        qual = list(toRecord.query_qualities[:toItr.seqPos])
 
-    #Init fromRecord iterator
-    fromItr = CigarIterator(fromRecord)
-    if not fromItr.skipToRefPos(refStart): return
+        #Init fromRecord iterator
+        fromItr = CigarIterator(fromRecord)
+        if not fromItr.skipToRefPos(refStart): return
 
-    toOptimal = None
+        toOptimal = None
 
-    while toItr.refPos <= refEnd and fromItr.refPos <= refEnd:
-        if toItr.op == fromItr.op:
-            if toItr.inSeq:
-                if toItr.baseQual == fromItr.baseQual:
-                    r = toItr if not toItr.matchesRef else fromItr
-                    seq += r.seqBase #Keep the variant if possible
-                    qual += [r.baseQual if r.matchesRef or toItr.seqBase == fromItr.seqBase else 3] # 3 = 50% probability of either base being correct
-                elif toItr.baseQual > fromItr.baseQual:
-                    seq += toItr.seqBase
-                    qual += [toItr.baseQual]
-                else:
-                    seq += fromItr.seqBase
-                    qual += [fromItr.baseQual]
-            appendOrInc(ops, [toItr.op, 1])
-        else:
-            # TODO Merge insertion without moving mate iterator? to try to better align matched regions between mates
-            if toOptimal == None:
-                # Dont calculate costs if unnecessary
-                toOptimal = calculateAlignmentCost(toRecord, refStart, refEnd, costs) < calculateAlignmentCost(fromRecord, refStart, refEnd, costs)
-            if toOptimal:
+        while toItr.refPos <= refEnd and fromItr.refPos <= refEnd:
+            if toItr.op == fromItr.op:
                 if toItr.inSeq:
-                    seq += toItr.seqBase
-                    qual += [toItr.baseQual]
+                    if toItr.baseQual == fromItr.baseQual:
+                        r = toItr if not toItr.matchesRef else fromItr
+                        seq += r.seqBase #Keep the variant if possible
+                        qual += [r.baseQual if r.matchesRef or toItr.seqBase == fromItr.seqBase else 3] # 3 = 50% probability of either base being correct
+                    elif toItr.baseQual > fromItr.baseQual:
+                        seq += toItr.seqBase
+                        qual += [toItr.baseQual]
+                    else:
+                        seq += fromItr.seqBase
+                        qual += [fromItr.baseQual]
                 appendOrInc(ops, [toItr.op, 1])
             else:
-                if fromItr.inSeq:
-                    seq += fromItr.seqBase
-                    qual += [fromItr.baseQual]
-                appendOrInc(ops, [fromItr.op, 1])
-        if not fromItr.next():
-            while toItr.next():  # Copy remainder of toRecord
-                if toItr.inSeq:
-                    seq += toItr.seqBase
-                    qual += [toItr.baseQual]
-                appendOrInc(ops, [toItr.op, 1])
-            break
-        if not toItr.next():
-            break
-    while toItr.valid:  # Copy remainder of toRecord
-        if toItr.inSeq:
-            seq += toItr.seqBase
-            qual += [toItr.baseQual]
-        appendOrInc(ops, [toItr.op, 1])
-        toItr.next()
-    toRecord.cigartuples = ops
-    toRecord.query_sequence = seq
-    toRecord.query_qualities = qual
-    # TODO update mapping quality
-    # TODO Store tag for which strand the base originated from
+                # TODO Merge insertion without moving mate iterator? to try to better align matched regions between mates
+                if toOptimal == None:
+                    # Dont calculate costs if unnecessary
+                    toOptimal = calculateAlignmentCost(toRecord, refStart, refEnd, costs) < calculateAlignmentCost(fromRecord, refStart, refEnd, costs)
+                if toOptimal:
+                    if toItr.inSeq:
+                        seq += toItr.seqBase
+                        qual += [toItr.baseQual]
+                    appendOrInc(ops, [toItr.op, 1])
+                else:
+                    if fromItr.inSeq:
+                        seq += fromItr.seqBase
+                        qual += [fromItr.baseQual]
+                    appendOrInc(ops, [fromItr.op, 1])
+            if not fromItr.next():
+                while toItr.next():  # Copy remainder of toRecord
+                    if toItr.inSeq:
+                        seq += toItr.seqBase
+                        qual += [toItr.baseQual]
+                    appendOrInc(ops, [toItr.op, 1])
+                break
+            if not toItr.next():
+                break
+        while toItr.valid:  # Copy remainder of toRecord
+            if toItr.inSeq:
+                seq += toItr.seqBase
+                qual += [toItr.baseQual]
+            appendOrInc(ops, [toItr.op, 1])
+            toItr.next()
+        toRecord.cigartuples = ops
+        toRecord.query_sequence = seq
+        toRecord.query_qualities = qual
+        # TODO update mapping quality
+        # TODO Store tag for which strand the base originated from
+    except BaseException as e:
+        raise RuntimeError("Unhandled exception while merging {}. Ref position: {} Merge start: {] Merge end: {}".format(toRecord.query_name, toRecord.reference_start, refStart, refEnd)) from e
 
 class WorkerProcess(parapysam.OrderedWorker):
     """

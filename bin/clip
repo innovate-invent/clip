@@ -3,7 +3,7 @@ from clipoverlap import clip
 import getopt, os, errno
 from sys import stdout, stdin, stderr, argv
 if __name__ == '__main__':
-    threads = 2
+    threads = 1
     maxTLen = 1000
     outFormat = ''
     ordered = False
