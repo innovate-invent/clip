@@ -1,9 +1,10 @@
 from setuptools import setup, find_packages
+from clipoverlap.__version import __versionstr__
 
 with open('README.rst') as readme:
     setup(
         name='clipoverlap',
-        version='1.0.9',
+        version=__versionstr__,
         packages=find_packages(),
         long_description=readme.read(),
         install_requires=['pysam', 'CigarIterator'],
