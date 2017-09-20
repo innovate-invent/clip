@@ -69,4 +69,4 @@ Need to eliminate the pysam dependency first.
 
 ------
 
-A special thanks to Christopher Rushton, Bruno Grande, and Ryan Morin for their contributions.
+A special thanks goes to Christopher Rushton, Bruno Grande, and Ryan Morin for their contributions.
