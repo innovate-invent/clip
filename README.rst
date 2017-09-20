@@ -66,3 +66,7 @@ TODO:
 -----
 Significant speed and memory optimisations are planned.
 Need to eliminate the pysam dependency first.
+
+------
+
+A special thanks to Christopher Rushton, Bruno Grande, and Ryan Morin for their contributions.
